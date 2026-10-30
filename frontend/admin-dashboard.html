@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin Dashboard | KrushiSetu</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="navbar" class="navbar"></div>
+
+<div class="container">
+  <div class="page-header"><h1>Admin Dashboard</h1></div>
+  <div class="alert" id="alertBox" style="display:none;"></div>
+
+  <div class="tabs" id="tabs">
+    <button data-tab="overview" class="active">Overview</button>
+    <button data-tab="products">Products</button>
+    <button data-tab="farmers">Farmers</button>
+    <button data-tab="customers">Customers</button>
+    <button data-tab="categories">Categories</button>
+    <button data-tab="delivery">Delivery Charges</button>
+    <button data-tab="orders">Orders</button>
+    <button data-tab="refunds">Refunds</button>
+    <button data-tab="wallets">Wallets</button>
+    <button data-tab="withdrawals">Withdrawals</button>
+    <button data-tab="issues">Payment Issues</button>
+  </div>
+
+  <div id="tabContent"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  Auth.requireRole('admin');
+  const alertBox = document.getElementById('alertBox');
+  const tabContent = document.getElementById('tabContent');
+
+  function pill(s) { return `<span class="status-pill status-${s}">${s}</span>`; }
+
+  const renderers = {
+    async overview() {
+      const res = await api.get('/admin/dashboard/summary');
+      const d = res.data;
+      tabContent.innerHTML = `
+        <div class="dashboard-cards">
+          <div class="stat-card"><div class="label">Farmers</div><div class="value">${d.users.total_farmers || 0}</div></div>
+          <div class="stat-card"><div class="label">Customers</div><div class="value">${d.users.total_customers || 0}</div></div>
+          <div class="stat-card"><div class="label">Pending Products</div><div class="value">${d.products.pending_products || 0}</div></div>
+          <div class="stat-card"><div class="label">Approved Products</div><div class="value">${d.products.approved_products || 0}</div></div>
+          <div class="stat-card"><div class="label">Total Orders</div><div class="value">${d.orders.total_orders || 0}</div></div>
+          <div class="stat-card"><div class="label">Gross Sales</div><div class="value">₹${Number(d.orders.gross_sales || 0).toFixed(2)}</div></div>
+          <div class="stat-card"><div class="label">Platform Revenue</div><div class="value">₹${Number(d.revenue.platform_revenue || 0).toFixed(2)}</div></div>
+          <div class="stat-card"><div class="label">Pending Withdrawals</div><div class="value">₹${Number(d.withdrawals.pending_withdrawals || 0).toFixed(2)}</div></div>
+        </div>`;
+    },
+
+    async products() {
+      const res = await api.get('/admin/products?status=pending');
+      if (!res.data.length) { tabContent.innerHTML = '<div class="empty-state">No products pending review.</div>'; return; }
+      tabContent.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Category</th><th>Farmer</th><th>Grades</th><th></th></tr></thead><tbody>
+        ${res.data.map((p) => `<tr>
+          <td>${p.name}</td><td>${p.category_name}</td><td>${p.farmer_name}<br/><small>${p.farmer_email}</small></td>
+          <td>
+            ${p.grade_a_price != null ? `A: ₹${p.grade_a_price} (${p.grade_a_quantity})<br/>` : ''}
+            ${p.grade_b_price != null ? `B: ₹${p.grade_b_price} (${p.grade_b_quantity})<br/>` : ''}
+            ${p.grade_c_price != null ? `C: ₹${p.grade_c_price} (${p.grade_c_quantity})` : ''}
+          </td>
+          <td>
+            <button class="btn btn-sm btn-primary" onclick="approveProduct(${p.id})">Approve</button>
+            <button class="btn btn-sm btn-danger" onclick="rejectProduct(${p.id})">Reject</button>
+          </td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    },
+
+    async farmers() {
+      const res = await api.get('/admin/farmers');
+      tabContent.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Email</th><th>District/State</th><th>Approved</th><th>Active</th><th></th></tr></thead><tbody>
+        ${res.data.map((f) => `<tr>
+          <td>${f.name}${f.farm_name ? ' — ' + f.farm_name : ''}</td><td>${f.email}<br/><small>${f.phone}</small></td>
+          <td>${f.district}, ${f.state}</td>
+          <td>${f.approved ? '✅' : `<button class="btn btn-sm btn-primary" onclick="approveFarmer(${f.id})">Approve</button>`}</td>
+          <td>${f.is_active ? '✅' : '❌'}</td>
+          <td><button class="btn btn-sm btn-secondary" onclick="toggleActive(${f.id}, ${f.is_active ? 0 : 1})">${f.is_active ? 'Deactivate' : 'Activate'}</button></td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    },
+
+    async customers() {
+      const res = await api.get('/admin/customers');
+      tabContent.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Active</th><th></th></tr></thead><tbody>
+        ${res.data.map((c) => `<tr>
+          <td>${c.name}</td><td>${c.email}</td><td>${c.phone}</td><td>${c.is_active ? '✅' : '❌'}</td>
+          <td><button class="btn btn-sm btn-secondary" onclick="toggleActive(${c.id}, ${c.is_active ? 0 : 1})">${c.is_active ? 'Deactivate' : 'Activate'}</button></td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    },
+
+    async categories() {
+      const res = await api.get('/admin/categories/all').catch(() => api.get('/categories/admin/all'));
+      tabContent.innerHTML = `
+        <div class="form-card" style="max-width:100%;">
+          <h3>Add Category</h3>
+          <form id="catForm">
+            <div class="form-row">
+              <div class="form-group"><label>Name</label><input id="catName" required /></div>
+              <div class="form-group"><label>Description</label><input id="catDesc" /></div>
+            </div>
+            <button class="btn btn-primary" type="submit">Add</button>
+          </form>
+        </div>
+        <table class="data-table"><thead><tr><th>Name</th><th>Description</th><th>Active</th></tr></thead><tbody>
+        ${res.data.map((c) => `<tr><td>${c.name}</td><td>${c.description || ''}</td><td>${c.is_active ? '✅' : '❌'}</td></tr>`).join('')}
+        </tbody></table>`;
+      document.getElementById('catForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          await api.post('/categories', { name: document.getElementById('catName').value.trim(), description: document.getElementById('catDesc').value.trim() });
+          renderers.categories();
+        } catch (err) { showAlert(alertBox, err.message); }
+      });
+    },
+
+    async delivery() {
+      const [charges, cats] = await Promise.all([api.get('/admin/delivery-charges'), api.get('/categories')]);
+      tabContent.innerHTML = `
+        <div class="form-card" style="max-width:100%;">
+          <h3>Set Delivery Charge</h3>
+          <form id="dcForm">
+            <div class="form-row">
+              <div class="form-group"><label>Category</label>
+                <select id="dcCategory">${cats.data.map((c) => `<option value="${c.id}">${c.name}</option>`).join('')}</select>
+              </div>
+              <div class="form-group"><label>Base Charge (₹)</label><input type="number" step="0.01" id="dcBase" value="0" /></div>
+              <div class="form-group"><label>Per Kg/Unit Charge (₹)</label><input type="number" step="0.01" id="dcPerKg" value="0" /></div>
+              <div class="form-group"><label>Free Above (₹, optional)</label><input type="number" step="0.01" id="dcFreeAbove" /></div>
+            </div>
+            <button class="btn btn-primary" type="submit">Save</button>
+          </form>
+        </div>
+        <table class="data-table"><thead><tr><th>Category</th><th>Base</th><th>Per Kg</th><th>Free Above</th></tr></thead><tbody>
+        ${charges.data.map((d) => `<tr><td>${d.category_name}</td><td>₹${Number(d.base_charge).toFixed(2)}</td><td>₹${Number(d.per_kg_charge).toFixed(2)}</td><td>${d.free_above_amount ? '₹' + Number(d.free_above_amount).toFixed(2) : '-'}</td></tr>`).join('')}
+        </tbody></table>`;
+      document.getElementById('dcForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          await api.post('/admin/delivery-charges', {
+            category_id: Number(document.getElementById('dcCategory').value),
+            base_charge: Number(document.getElementById('dcBase').value),
+            per_kg_charge: Number(document.getElementById('dcPerKg').value),
+            free_above_amount: document.getElementById('dcFreeAbove').value ? Number(document.getElementById('dcFreeAbove').value) : null,
+          });
+          renderers.delivery();
+        } catch (err) { showAlert(alertBox, err.message); }
+      });
+    },
+
+    async orders() {
+      const res = await api.get('/admin/orders');
+      tabContent.innerHTML = `<table class="data-table"><thead><tr><th>Order #</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th></tr></thead><tbody>
+        ${res.data.map((o) => `<tr>
+          <td>${o.order_number}</td><td>${o.customer_name}</td><td>₹${Number(o.total_amount).toFixed(2)}</td>
+          <td>${pill(o.payment_status)}</td><td>${pill(o.order_status)}</td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    },
+
+    async refunds() {
+      const res = await api.get('/admin/refunds');
+      if (!res.data.length) { tabContent.innerHTML = '<div class="empty-state">No refund requests.</div>'; return; }
+      tabContent.innerHTML = `<table class="data-table"><thead><tr><th>Order #</th><th>Customer</th><th>Amount</th><th>Reason</th><th>Status</th><th></th></tr></thead><tbody>
+        ${res.data.map((r) => `<tr>
+          <td>${r.order_number}</td><td>${r.customer_name}</td><td>₹${Number(r.amount).toFixed(2)}</td><td>${r.reason}</td><td>${pill(r.status)}</td>
+          <td>${r.status === 'requested' || r.status === 'processing' ? `
+            <button class="btn btn-sm btn-primary" onclick="updateRefund(${r.id}, 'completed')">Complete</button>
+            <button class="btn btn-sm btn-danger" onclick="updateRefund(${r.id}, 'rejected')">Reject</button>` : ''}
+          </td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    },
+
+    async wallets() {
+      const res = await api.get('/admin/wallets');
+      tabContent.innerHTML = `<table class="data-table"><thead><tr><th>Farmer</th><th>Balance</th><th>Total Earned</th><th>Total Withdrawn</th></tr></thead><tbody>
+        ${res.data.map((w) => `<tr><td>${w.farmer_name}<br/><small>${w.farmer_email}</small></td><td>₹${Number(w.balance).toFixed(2)}</td><td>₹${Number(w.total_earned).toFixed(2)}</td><td>₹${Number(w.total_withdrawn).toFixed(2)}</td></tr>`).join('')}
+      </tbody></table>`;
+    },
+
+    async withdrawals() {
+      const res = await api.get('/admin/withdrawals');
+      if (!res.data.length) { tabContent.innerHTML = '<div class="empty-state">No withdrawal requests.</div>'; return; }
+      tabContent.innerHTML = `<table class="data-table"><thead><tr><th>Farmer</th><th>Amount</th><th>Bank A/C</th><th>IFSC</th><th>Status</th><th></th></tr></thead><tbody>
+        ${res.data.map((w) => `<tr>
+          <td>${w.farmer_name}</td><td>₹${Number(w.amount).toFixed(2)}</td><td>${w.bank_account_number}</td><td>${w.bank_ifsc}</td><td>${pill(w.status)}</td>
+          <td>${w.status === 'requested' ? `
+            <button class="btn btn-sm btn-primary" onclick="updateWithdrawal(${w.id}, 'approved')">Approve</button>
+            <button class="btn btn-sm btn-danger" onclick="updateWithdrawal(${w.id}, 'rejected')">Reject</button>`
+            : w.status === 'approved' ? `<button class="btn btn-sm btn-primary" onclick="updateWithdrawal(${w.id}, 'processed')">Mark Processed</button>` : ''}
+          </td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    },
+
+    async issues() {
+      const res = await api.get('/admin/payment-issues');
+      if (!res.data.length) { tabContent.innerHTML = '<div class="empty-state">No open issues.</div>'; return; }
+      tabContent.innerHTML = `<table class="data-table"><thead><tr><th>From</th><th>Subject</th><th>Order</th><th>Status</th><th></th></tr></thead><tbody>
+        ${res.data.map((i) => `<tr>
+          <td>${i.raised_by_name} (${i.raised_by_role})</td><td>${i.subject}<br/><small>${i.description}</small></td><td>${i.order_number || '-'}</td><td>${pill(i.status)}</td>
+          <td>${i.status !== 'closed' && i.status !== 'resolved' ? `<button class="btn btn-sm btn-primary" onclick="resolveIssue(${i.id})">Resolve</button>` : ''}</td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    },
+  };
+
+  window.approveProduct = async (id) => { try { await api.patch(`/admin/products/${id}/approve`); renderers.products(); } catch (e) { showAlert(alertBox, e.message); } };
+  window.rejectProduct = async (id) => {
+    const reason = prompt('Reason for rejection:');
+    if (!reason) return;
+    try { await api.patch(`/admin/products/${id}/reject`, { reason }); renderers.products(); } catch (e) { showAlert(alertBox, e.message); }
+  };
+  window.approveFarmer = async (id) => { try { await api.patch(`/admin/farmers/${id}/approve`); renderers.farmers(); } catch (e) { showAlert(alertBox, e.message); } };
+  window.toggleActive = async (id, val) => { try { await api.patch(`/admin/users/${id}/active`, { is_active: !!val }); renderers.farmers(); renderers.customers(); } catch (e) { showAlert(alertBox, e.message); } };
+  window.updateRefund = async (id, status) => { try { await api.patch(`/admin/refunds/${id}`, { status }); renderers.refunds(); } catch (e) { showAlert(alertBox, e.message); } };
+  window.updateWithdrawal = async (id, status) => { try { await api.patch(`/admin/withdrawals/${id}`, { status }); renderers.withdrawals(); } catch (e) { showAlert(alertBox, e.message); } };
+  window.resolveIssue = async (id) => {
+    const admin_response = prompt('Response to send:') || '';
+    try { await api.patch(`/admin/payment-issues/${id}`, { status: 'resolved', admin_response }); renderers.issues(); } catch (e) { showAlert(alertBox, e.message); }
+  };
+
+  document.querySelectorAll('#tabs button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#tabs button').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      hideAlert(alertBox);
+      renderers[btn.dataset.tab]().catch((err) => showAlert(alertBox, err.message));
+    });
+  });
+
+  renderers.overview().catch((err) => showAlert(alertBox, err.message));
+</script>
+</body>
+</html>

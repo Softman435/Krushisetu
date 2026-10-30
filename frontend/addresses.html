@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Addresses | KrushiSetu</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="navbar" class="navbar"></div>
+
+<div class="container">
+  <div class="page-header"><h1>My Addresses</h1></div>
+  <div class="alert" id="alertBox" style="display:none;"></div>
+
+  <div class="form-card" style="max-width:100%;">
+    <h3>Add New Address</h3>
+    <form id="addressForm" novalidate>
+      <div class="form-row">
+        <div class="form-group"><label>Full Name</label><input id="full_name" required /><div class="field-error" data-error-for="full_name"></div></div>
+        <div class="form-group"><label>Phone</label><input id="phone" maxlength="10" required /><div class="field-error" data-error-for="phone"></div></div>
+      </div>
+      <div class="form-group"><label>Address</label><input id="address_line" required /><div class="field-error" data-error-for="address_line"></div></div>
+      <div class="form-row">
+        <div class="form-group"><label>City</label><input id="city" required /><div class="field-error" data-error-for="city"></div></div>
+        <div class="form-group"><label>State</label><input id="state" required /><div class="field-error" data-error-for="state"></div></div>
+        <div class="form-group"><label>Pincode</label><input id="pincode" maxlength="6" required /><div class="field-error" data-error-for="pincode"></div></div>
+      </div>
+      <label><input type="checkbox" id="is_default" /> Set as default</label><br /><br />
+      <button class="btn btn-primary" type="submit">Save Address</button>
+    </form>
+  </div>
+
+  <div id="addressList" class="grid"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  Auth.requireRole('customer');
+  const returnToCart = new URLSearchParams(window.location.search).get('return') === 'cart' ||
+    sessionStorage.getItem('ks_return_to_cart_after_address') === 'true';
+  const alertBox = document.getElementById('alertBox');
+  const addressList = document.getElementById('addressList');
+
+  async function loadAddresses() {
+    try {
+      const res = await api.get('/addresses');
+      if (!res.data.length) { addressList.innerHTML = '<div class="empty-state">No saved addresses yet.</div>'; return; }
+      addressList.innerHTML = res.data.map((a) => `
+        <div class="product-card"><div class="body">
+          <h3>${a.full_name} ${a.is_default ? '<span class="status-pill status-approved">Default</span>' : ''}</h3>
+          <p>${a.address_line}, ${a.city}, ${a.state} - ${a.pincode}</p>
+          <p>📞 ${a.phone}</p>
+          <button class="btn btn-sm btn-danger" onclick="deleteAddress(${a.id})">Delete</button>
+        </div></div>
+      `).join('');
+    } catch (err) { showAlert(alertBox, err.message); }
+  }
+
+  async function deleteAddress(id) {
+    try { await api.delete(`/addresses/${id}`); loadAddresses(); }
+    catch (err) { showAlert(alertBox, err.message); }
+  }
+
+  document.getElementById('addressForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideAlert(alertBox);
+    renderFormErrors(null, alertBox);
+    try {
+      await api.post('/addresses', {
+        full_name: document.getElementById('full_name').value.trim(),
+        phone: document.getElementById('phone').value.trim(),
+        address_line: document.getElementById('address_line').value.trim(),
+        city: document.getElementById('city').value.trim(),
+        state: document.getElementById('state').value.trim(),
+        pincode: document.getElementById('pincode').value.trim(),
+        is_default: document.getElementById('is_default').checked,
+      });
+      if (returnToCart) {
+        sessionStorage.removeItem('ks_return_to_cart_after_address');
+        window.location.href = 'cart.html';
+        return;
+      }
+      e.target.reset();
+      loadAddresses();
+    } catch (err) {
+      if (err.errors) renderFormErrors(err.errors, alertBox);
+      showAlert(alertBox, err.message);
+    }
+  });
+
+  loadAddresses();
+</script>
+</body>
+</html>

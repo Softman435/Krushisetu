@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Cart | KrushiSetu</title>
+<link rel="stylesheet" href="css/style.css" />
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+<div id="navbar" class="navbar"></div>
+
+<div class="container">
+  <div class="page-header"><h1>My Cart</h1></div>
+  <div class="alert" id="alertBox" style="display:none;"></div>
+  <div id="cartItems"></div>
+
+  <div class="form-card" style="max-width:100%;margin:24px 0;display:none;" id="checkoutBox">
+    <h3>Checkout</h3>
+    <div class="form-group">
+      <label for="addressSelect">Delivery Address</label>
+      <select id="addressSelect" disabled>
+        <option value="">Loading delivery addresses...</option>
+      </select>
+      <div id="addressHelp" style="margin-top:8px;"></div>
+    </div>
+    <div class="form-group">
+      <label for="paymentMethod">Payment Method</label>
+      <select id="paymentMethod">
+        <option value="COD">Cash on Delivery</option>
+        <option value="RAZORPAY">Pay Online (Razorpay)</option>
+      </select>
+    </div>
+    <p><strong>Subtotal: ₹<span id="subtotalDisplay">0.00</span></strong></p>
+    <button class="btn btn-primary btn-block" id="placeOrderBtn">Place Order</button>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  Auth.requireRole('customer');
+  const alertBox = document.getElementById('alertBox');
+  const cartItemsEl = document.getElementById('cartItems');
+  const checkoutBox = document.getElementById('checkoutBox');
+  const addressSelect = document.getElementById('addressSelect');
+  const addressHelp = document.getElementById('addressHelp');
+  const placeOrderBtn = document.getElementById('placeOrderBtn');
+  let addressesLoaded = false;
+
+  function showAddressHelp(message, linkText) {
+    addressHelp.replaceChildren();
+    const text = document.createElement('span');
+    text.textContent = message;
+    addressHelp.appendChild(text);
+    if (linkText) {
+      addressHelp.appendChild(document.createTextNode(' '));
+      const link = document.createElement('a');
+      link.href = 'addresses.html?return=cart';
+      link.id = 'addDeliveryAddressLink';
+      link.textContent = linkText;
+      link.addEventListener('click', () => {
+        sessionStorage.setItem('ks_return_to_cart_after_address', 'true');
+      });
+      addressHelp.appendChild(link);
+    }
+  }
+
+  async function loadCart() {
+    try {
+      const res = await api.get('/cart');
+      const { items, subtotal } = res.data;
+      if (!items.length) {
+        cartItemsEl.innerHTML = '<div class="empty-state">Your cart is empty. <a href="index.html">Browse products</a></div>';
+        checkoutBox.style.display = 'none';
+        return;
+      }
+      cartItemsEl.innerHTML = `
+        <table class="data-table">
+          <thead><tr><th>Product</th><th>Grade</th><th>Qty</th><th>Unit Price</th><th>Total</th><th></th></tr></thead>
+          <tbody>
+            ${items.map((i) => `
+              <tr>
+                <td>${i.name}</td>
+                <td>Grade ${i.grade}</td>
+                <td>
+                  <input type="number" min="0.1" step="0.1" value="${i.quantity}" style="width:70px;"
+                         data-cart-id="${i.cart_item_id}" class="qtyInput" />
+                </td>
+                <td>₹${i.unit_price.toFixed(2)}</td>
+                <td>₹${i.line_total.toFixed(2)} ${!i.in_stock ? '<span class="status-pill status-rejected">Stock issue</span>' : ''}</td>
+                <td><button class="btn btn-sm btn-danger removeBtn" data-cart-id="${i.cart_item_id}">Remove</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+      document.getElementById('subtotalDisplay').textContent = subtotal.toFixed(2);
+      checkoutBox.style.display = 'block';
+
+      document.querySelectorAll('.removeBtn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try { await api.delete(`/cart/${btn.dataset.cartId}`); loadCart(); }
+          catch (err) { showAlert(alertBox, err.message); }
+        });
+      });
+      document.querySelectorAll('.qtyInput').forEach((input) => {
+        input.addEventListener('change', async () => {
+          try { await api.put(`/cart/${input.dataset.cartId}`, { quantity: Number(input.value) }); loadCart(); }
+          catch (err) { showAlert(alertBox, err.message); loadCart(); }
+        });
+      });
+    } catch (err) {
+      showAlert(alertBox, err.message);
+    }
+  }
+
+  async function loadAddresses() {
+    addressesLoaded = false;
+    addressSelect.disabled = true;
+    addressSelect.replaceChildren(new Option('Loading delivery addresses...', ''));
+    showAddressHelp('', null);
+    try {
+      const res = await api.get('/addresses');
+      if (!Array.isArray(res.data)) {
+        throw new Error('The server returned an invalid address list.');
+      }
+
+      if (!res.data.length) {
+        addressSelect.replaceChildren(new Option('No saved delivery addresses', ''));
+        showAddressHelp('An address is required before checkout.', 'Add a delivery address');
+        return;
+      }
+
+      addressSelect.replaceChildren(new Option('Choose a delivery address', ''));
+      res.data.forEach((address) => {
+        const option = new Option(
+          `${address.full_name} — ${address.address_line}, ${address.city} (${address.pincode})`,
+          String(address.id)
+        );
+        option.selected = Boolean(address.is_default);
+        addressSelect.appendChild(option);
+      });
+      if (!addressSelect.value && addressSelect.options.length > 1) {
+        addressSelect.selectedIndex = 1;
+      }
+      addressSelect.disabled = false;
+      addressesLoaded = true;
+    } catch (err) {
+      addressSelect.replaceChildren(new Option('Unable to load delivery addresses', ''));
+      showAddressHelp(err.message || 'Could not load your saved addresses.', 'Manage addresses');
+    }
+  }
+
+  async function payWithRazorpay(orderId, totalAmount) {
+    const createRes = await api.post('/payments/razorpay/create-order', { order_id: orderId });
+    const { razorpay_order_id, amount, currency, key_id } = createRes.data;
+    if (typeof Razorpay !== 'function') {
+      throw new Error('Razorpay checkout could not be loaded. Check your internet connection and try again.');
+    }
+
+    return new Promise((resolve, reject) => {
+      const rzp = new Razorpay({
+        key: key_id,
+        amount,
+        currency,
+        order_id: razorpay_order_id,
+        name: 'KrushiSetu',
+        description: 'Order payment',
+        handler: async function (response) {
+          try {
+            await api.post('/payments/razorpay/verify', {
+              order_id: orderId,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+            resolve();
+          } catch (err) { reject(err); }
+        },
+        modal: { ondismiss: () => reject(new Error('Payment cancelled.')) },
+      });
+      rzp.open();
+    });
+  }
+
+  function showPaymentRetry(orderId, totalAmount, error) {
+    showAlert(alertBox, `Order #${orderId} was created, but online payment did not start. ${error.message}`);
+    const retryButton = document.createElement('button');
+    retryButton.type = 'button';
+    retryButton.className = 'btn btn-primary btn-sm';
+    retryButton.style.marginTop = '10px';
+    retryButton.textContent = 'Retry Online Payment';
+    retryButton.addEventListener('click', async () => {
+      retryButton.disabled = true;
+      try {
+        await payWithRazorpay(orderId, totalAmount);
+        window.location.href = `orders.html?placed=${orderId}`;
+      } catch (retryError) {
+        showPaymentRetry(orderId, totalAmount, retryError);
+      }
+    });
+    alertBox.appendChild(document.createElement('br'));
+    alertBox.appendChild(retryButton);
+  }
+
+  document.getElementById('placeOrderBtn').addEventListener('click', async () => {
+    hideAlert(alertBox);
+    const selectedAddressId = addressSelect.value;
+    const address_id = Number(selectedAddressId);
+    const payment_method = document.getElementById('paymentMethod').value;
+    if (!addressesLoaded) {
+      showAlert(alertBox, 'Delivery addresses are not ready. Add an address or reload the address list.');
+      return;
+    }
+    if (!selectedAddressId || !Number.isSafeInteger(address_id) || address_id < 1) {
+      showAlert(alertBox, 'Please choose a delivery address before placing your order.');
+      addressSelect.focus();
+      return;
+    }
+
+    placeOrderBtn.disabled = true;
+    try {
+      const res = await api.post('/orders/checkout', { address_id, payment_method });
+      const { order_id, total_amount, requires_online_payment } = res.data;
+
+      if (requires_online_payment) {
+        try {
+          await payWithRazorpay(order_id, total_amount);
+        } catch (paymentError) {
+          showPaymentRetry(order_id, total_amount, paymentError);
+          return;
+        }
+      }
+      window.location.href = `orders.html?placed=${order_id}`;
+    } catch (err) {
+      showAlert(alertBox, err.message);
+    } finally {
+      placeOrderBtn.disabled = false;
+    }
+  });
+
+  loadCart();
+  loadAddresses();
+</script>
+</body>
+</html>

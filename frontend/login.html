@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Login | KrushiSetu</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="navbar" class="navbar"></div>
+
+<div class="form-card">
+  <h2>Login to KrushiSetu</h2>
+  <div class="alert" id="alertBox" style="display:none;"></div>
+
+  <form id="loginForm" novalidate>
+    <div class="form-group">
+      <label for="emailOrPhone">Email or Phone Number</label>
+      <input type="text" id="emailOrPhone" name="emailOrPhone" required autocomplete="username" />
+      <div class="field-error" data-error-for="emailOrPhone"></div>
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required autocomplete="current-password" />
+      <div class="field-error" data-error-for="password"></div>
+    </div>
+    <button type="submit" class="btn btn-primary btn-block" id="loginBtn">Login</button>
+  </form>
+
+  <p class="form-footer">
+    New farmer? <a href="register.html?role=farmer">Register as Farmer</a><br />
+    New customer? <a href="register.html?role=customer">Register as Customer</a>
+  </p>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  const form = document.getElementById('loginForm');
+  const alertBox = document.getElementById('alertBox');
+  const loginBtn = document.getElementById('loginBtn');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideAlert(alertBox);
+    renderFormErrors(null, alertBox);
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Logging in...';
+
+    try {
+      const payload = {
+        emailOrPhone: document.getElementById('emailOrPhone').value.trim(),
+        password: document.getElementById('password').value,
+      };
+      const res = await api.post('/auth/login', payload);
+      Auth.setToken(res.data.accessToken);
+      Auth.setUser(res.data.user);
+
+      const role = res.data.user.role;
+      if (role === 'admin') window.location.href = 'admin-dashboard.html';
+      else if (role === 'farmer') window.location.href = 'farmer-dashboard.html';
+      else window.location.href = 'index.html';
+    } catch (err) {
+      if (err.errors) renderFormErrors(err.errors, alertBox);
+      showAlert(alertBox, err.message || 'Login failed.');
+    } finally {
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Login';
+    }
+  });
+</script>
+</body>
+</html>

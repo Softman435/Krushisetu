@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Register | KrushiSetu</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="navbar" class="navbar"></div>
+
+<div class="form-card" style="max-width:560px;">
+  <h2>Create your KrushiSetu account</h2>
+  <div class="tabs" id="roleTabs">
+    <button type="button" data-role="customer" class="active">I'm a Customer</button>
+    <button type="button" data-role="farmer">I'm a Farmer</button>
+  </div>
+  <div class="alert" id="alertBox" style="display:none;"></div>
+
+  <form id="registerForm" novalidate>
+    <div class="form-group">
+      <label for="name">Full Name</label>
+      <input type="text" id="name" required />
+      <div class="field-error" data-error-for="name"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" required />
+        <div class="field-error" data-error-for="email"></div>
+      </div>
+      <div class="form-group">
+        <label for="phone">Phone (10 digits)</label>
+        <input type="tel" id="phone" maxlength="10" required />
+        <div class="field-error" data-error-for="phone"></div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" required />
+      <div class="field-error" data-error-for="password"></div>
+      <small style="color:#4a504a;">Min 8 characters, with uppercase, lowercase, number & symbol.</small>
+    </div>
+
+    <div id="farmerFields" style="display:none;">
+      <hr />
+      <h4>Farm Details</h4>
+      <div class="form-group">
+        <label for="farm_name">Farm Name (optional)</label>
+        <input type="text" id="farm_name" />
+      </div>
+      <div class="form-group">
+        <label for="address_line">Address</label>
+        <input type="text" id="address_line" />
+        <div class="field-error" data-error-for="address_line"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="village">Village (optional)</label>
+          <input type="text" id="village" />
+        </div>
+        <div class="form-group">
+          <label for="district">District</label>
+          <input type="text" id="district" />
+          <div class="field-error" data-error-for="district"></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="state">State</label>
+          <input type="text" id="state" />
+          <div class="field-error" data-error-for="state"></div>
+        </div>
+        <div class="form-group">
+          <label for="pincode">Pincode</label>
+          <input type="text" id="pincode" maxlength="6" />
+          <div class="field-error" data-error-for="pincode"></div>
+        </div>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-block" id="registerBtn">Create Account</button>
+  </form>
+
+  <p class="form-footer">Already have an account? <a href="login.html">Login</a></p>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  let currentRole = new URLSearchParams(window.location.search).get('role') === 'farmer' ? 'farmer' : 'customer';
+
+  const tabs = document.querySelectorAll('#roleTabs button');
+  const farmerFields = document.getElementById('farmerFields');
+
+  function applyRoleUI() {
+    tabs.forEach((t) => t.classList.toggle('active', t.dataset.role === currentRole));
+    farmerFields.style.display = currentRole === 'farmer' ? 'block' : 'none';
+  }
+  tabs.forEach((t) => t.addEventListener('click', () => { currentRole = t.dataset.role; applyRoleUI(); }));
+  applyRoleUI();
+
+  const form = document.getElementById('registerForm');
+  const alertBox = document.getElementById('alertBox');
+  const registerBtn = document.getElementById('registerBtn');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideAlert(alertBox);
+    renderFormErrors(null, alertBox);
+    registerBtn.disabled = true;
+    registerBtn.textContent = 'Creating account...';
+
+    const base = {
+      name: document.getElementById('name').value.trim(),
+      email: document.getElementById('email').value.trim(),
+      phone: document.getElementById('phone').value.trim(),
+      password: document.getElementById('password').value,
+    };
+
+    try {
+      let res;
+      if (currentRole === 'farmer') {
+        const payload = {
+          ...base,
+          farm_name: document.getElementById('farm_name').value.trim(),
+          address_line: document.getElementById('address_line').value.trim(),
+          village: document.getElementById('village').value.trim(),
+          district: document.getElementById('district').value.trim(),
+          state: document.getElementById('state').value.trim(),
+          pincode: document.getElementById('pincode').value.trim(),
+        };
+        res = await api.post('/auth/register/farmer', payload);
+      } else {
+        res = await api.post('/auth/register/customer', base);
+      }
+
+      showAlert(alertBox, res.message + ' Redirecting to login...', 'success');
+      setTimeout(() => (window.location.href = 'login.html'), 1500);
+    } catch (err) {
+      if (err.errors) renderFormErrors(err.errors, alertBox);
+      showAlert(alertBox, err.message || 'Registration failed.');
+    } finally {
+      registerBtn.disabled = false;
+      registerBtn.textContent = 'Create Account';
+    }
+  });
+</script>
+</body>
+</html>

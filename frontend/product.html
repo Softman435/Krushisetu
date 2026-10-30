@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Product | KrushiSetu</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="navbar" class="navbar"></div>
+
+<div class="container" style="max-width:700px;">
+  <div id="content" class="form-card" style="max-width:100%;">Loading...</div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  const rawProductId = new URLSearchParams(window.location.search).get('id') ||
+    sessionStorage.getItem('ks_selected_product_id');
+  const content = document.getElementById('content');
+
+  function showError(message) {
+    const error = document.createElement('p');
+    error.className = 'alert alert-error';
+    error.textContent = message;
+    content.replaceChildren(error);
+  }
+
+  function addTextElement(parent, tag, text, className) {
+    const element = document.createElement(tag);
+    element.textContent = text;
+    if (className) element.className = className;
+    parent.appendChild(element);
+    return element;
+  }
+
+  function safeImageUrl(value, name) {
+    if (value) {
+      try {
+        const url = new URL(value, window.location.href);
+        if (url.protocol === 'http:' || url.protocol === 'https:') return value;
+      } catch {
+        // Use the placeholder when the product image URL is invalid.
+      }
+    }
+    return `https://placehold.co/600x300?text=${encodeURIComponent(name)}`;
+  }
+
+  async function load() {
+    const productId = Number(rawProductId);
+    if (!rawProductId || !Number.isSafeInteger(productId) || productId < 1) {
+      showError('Invalid product.');
+      return;
+    }
+
+    try {
+      const res = await api.get(`/products/${productId}`);
+      const p = res.data;
+      const productName = p.name || 'Product';
+      const grades = ['A', 'B', 'C'].map((grade) => ({
+        grade,
+        price: p[`grade_${grade.toLowerCase()}_price`],
+        quantity: Number(p[`grade_${grade.toLowerCase()}_quantity`]) || 0,
+      }));
+      const availableGrades = grades.filter((grade) => grade.price != null && grade.quantity > 0);
+
+      content.replaceChildren();
+      const image = document.createElement('img');
+      image.src = safeImageUrl(p.image_url, productName);
+      image.alt = productName;
+      image.style.cssText = 'width:100%;border-radius:8px;margin-bottom:16px;';
+      content.appendChild(image);
+      addTextElement(content, 'h2', productName);
+      addTextElement(content, 'p', `${p.category_name || 'Uncategorized'} • Sold by ${p.farmer_name || 'Farmer'}`)
+        .style.color = '#4a504a';
+      addTextElement(content, 'p', p.description || '');
+
+      const alertBox = document.createElement('div');
+      alertBox.className = 'alert';
+      alertBox.style.display = 'none';
+      content.appendChild(alertBox);
+
+      const canPurchase = p.status === 'approved' && Boolean(Number(p.is_available)) && availableGrades.length > 0;
+      if (!canPurchase) {
+        addTextElement(content, 'p', 'This product is currently unavailable.', 'alert alert-error');
+      }
+
+      const gradeGroup = document.createElement('div');
+      gradeGroup.className = 'form-group';
+      addTextElement(gradeGroup, 'label', 'Choose Grade').htmlFor = 'gradeSelect';
+      const gradeSelect = document.createElement('select');
+      gradeSelect.id = 'gradeSelect';
+      gradeSelect.disabled = !canPurchase;
+      availableGrades.forEach(({ grade, price, quantity }) => {
+        const option = document.createElement('option');
+        option.value = grade;
+        option.dataset.price = String(price);
+        option.dataset.qty = String(quantity);
+        option.textContent = `Grade ${grade} — ₹${Number(price).toFixed(2)} (${quantity} available)`;
+        gradeSelect.appendChild(option);
+      });
+      gradeGroup.appendChild(gradeSelect);
+      content.appendChild(gradeGroup);
+
+      const quantityGroup = document.createElement('div');
+      quantityGroup.className = 'form-group';
+      addTextElement(quantityGroup, 'label', `Quantity (${p.unit || 'unit'})`).htmlFor = 'qtyInput';
+      const quantityInput = document.createElement('input');
+      quantityInput.type = 'number';
+      quantityInput.id = 'qtyInput';
+      quantityInput.min = '0.01';
+      quantityInput.step = '0.01';
+      quantityInput.disabled = !canPurchase;
+      quantityGroup.appendChild(quantityInput);
+      content.appendChild(quantityGroup);
+
+      const addButton = document.createElement('button');
+      addButton.type = 'button';
+      addButton.className = 'btn btn-primary btn-block';
+      addButton.textContent = 'Add to Cart';
+      addButton.disabled = !canPurchase;
+      content.appendChild(addButton);
+
+      function updateQuantityLimit() {
+        const selectedOption = gradeSelect.selectedOptions[0];
+        const stock = selectedOption ? Number(selectedOption.dataset.qty) : 0;
+        quantityInput.max = String(stock);
+        quantityInput.value = Math.min(1, stock).toFixed(2);
+      }
+      gradeSelect.addEventListener('change', updateQuantityLimit);
+      updateQuantityLimit();
+
+      addButton.addEventListener('click', async () => {
+        if (!Auth.isLoggedIn()) {
+          window.location.href = 'login.html';
+          return;
+        }
+        const user = Auth.getUser();
+        if (!user || user.role !== 'customer') {
+          showAlert(alertBox, 'Only customer accounts can purchase products.');
+          return;
+        }
+
+        const quantity = Number(quantityInput.value);
+        const quantityText = quantityInput.value.trim();
+        const selectedOption = gradeSelect.selectedOptions[0];
+        const stock = selectedOption ? Number(selectedOption.dataset.qty) : 0;
+        if (
+          !Number.isFinite(quantity) || quantity <= 0 ||
+          quantity > stock || !/^\d+(?:\.\d{1,2})?$/.test(quantityText)
+        ) {
+          showAlert(alertBox, `Enter a quantity from 0.01 to ${stock} ${p.unit || 'unit'} (up to 2 decimal places).`);
+          return;
+        }
+
+        addButton.disabled = true;
+        try {
+          await api.post('/cart', { product_id: productId, grade: gradeSelect.value, quantity });
+          showAlert(alertBox, 'Added to cart!', 'success');
+        } catch (err) {
+          showAlert(alertBox, err.message);
+        } finally {
+          addButton.disabled = false;
+        }
+      });
+    } catch (err) {
+      showError(err.message || 'Unable to load this product.');
+    }
+  }
+  load();
+</script>
+</body>
+</html>

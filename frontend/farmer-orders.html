@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Orders | KrushiSetu Farmer</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="navbar" class="navbar"></div>
+
+<div class="container">
+  <div class="page-header"><h1>Incoming Orders</h1></div>
+  <div class="alert" id="alertBox" style="display:none;"></div>
+  <div id="ordersList"></div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/navbar.js"></script>
+<script>
+  Auth.requireRole('farmer');
+  const alertBox = document.getElementById('alertBox');
+
+  const nextStatus = { pending: 'confirmed', confirmed: 'shipped', shipped: 'delivered' };
+
+  async function advanceStatus(itemId, status) {
+    try {
+      await api.patch(`/orders/items/${itemId}/status`, { status });
+      loadOrders();
+    } catch (err) { showAlert(alertBox, err.message); }
+  }
+
+  async function loadOrders() {
+    const list = document.getElementById('ordersList');
+    try {
+      const res = await api.get('/orders/farmer/mine');
+      if (!res.data.length) { list.innerHTML = '<div class="empty-state">No orders yet.</div>'; return; }
+      list.innerHTML = `
+        <table class="data-table">
+          <thead><tr><th>Order #</th><th>Product</th><th>Grade</th><th>Qty</th><th>Your Earning</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+          ${res.data.map((i) => `
+            <tr>
+              <td>${i.order_number}</td>
+              <td>${i.product_name}</td>
+              <td>${i.grade}</td>
+              <td>${i.quantity} ${i.unit}</td>
+              <td>₹${Number(i.farmer_earning).toFixed(2)}</td>
+              <td><span class="status-pill status-${i.item_status}">${i.item_status}</span></td>
+              <td>
+                ${nextStatus[i.item_status]
+                  ? `<button class="btn btn-sm btn-primary" onclick="advanceStatus(${i.id}, '${nextStatus[i.item_status]}')">Mark as ${nextStatus[i.item_status]}</button>`
+                  : ''}
+              </td>
+            </tr>
+          `).join('')}
+          </tbody>
+        </table>`;
+    } catch (err) { showAlert(alertBox, err.message); }
+  }
+
+  loadOrders();
+</script>
+</body>
+</html>
