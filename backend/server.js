@@ -1,22 +1,37 @@
+
 require('./config/env');
+
 const app = require('./app');
 const { testConnection } = require('./config/db');
 
 const PORT = process.env.PORT || 5000;
 
-(async () => {
-  await testConnection();
-  app.listen(PORT, () => {
-    console.log(`KrushiSetu API listening on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
-  });
-})();
+// Start KrushiSetu server
+async function startServer() {
+  try {
+    // Test MySQL connection
+    await testConnection();
 
-// Guard rails so an unexpected rejection doesn't silently crash MySQL
-// connections mid-transaction without any log trail.
-process.on('unhandledRejection', (err) => {
-  console.error('UNHANDLED REJECTION:', err);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`KrushiSetu API running on port ${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    });
+
+  } catch (error) {
+    console.error('KrushiSetu startup failed:', error.message);
+    process.exit(1);
+  }
+}
+
+// Handle unexpected errors
+process.on('unhandledRejection', (error) => {
+  console.error('UNHANDLED REJECTION:', error);
 });
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION:', err);
+
+process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION:', error);
   process.exit(1);
 });
+
+// Start application
+startServer();
