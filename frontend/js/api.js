@@ -7,8 +7,7 @@
  * - Automatically retries a request once after refreshing an expired
  *   access token.
  */
-const API_BASE_URL = 'http://localhost:5000/api';
-const Auth = {
+const API_BASE_URL = '/api';const Auth = {
   getToken() {
     return sessionStorage.getItem('ks_access_token');
   },

@@ -22,6 +22,7 @@ const supportRoutes = require('./routes/supportRoutes');
 const { razorpayWebhook } = require('./controllers/paymentController');
 
 const app = express();
+const path = require('path');
 const configuredClientOrigin = process.env.CLIENT_URL
   ? new URL(process.env.CLIENT_URL).origin
   : null;
@@ -71,6 +72,8 @@ app.use(xss()); // sanitize req.body/query/params against stored/reflected XSS
 
 app.use('/api', apiLimiter);
 
+// ---- Serve frontend ----
+app.use(express.static(path.join(__dirname, '..', 'frontend')));
 // ---- Health check ----
 app.get('/api/health', (req, res) => res.json({ success: true, message: 'KrushiSetu API is running.' }));
 
